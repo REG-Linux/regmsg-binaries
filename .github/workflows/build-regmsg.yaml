@@ -133,14 +133,8 @@ jobs:
           
           # Enable the flag and token to build regmsg from source
           sed -i 's/#BR2_PACKAGE_REGLINUX_MSG_BUILD_FROM_SOURCE=y/BR2_PACKAGE_REGLINUX_MSG_BUILD_FROM_SOURCE=y/' configs/reglinux-board.common
-          sed -i "s/^REGLINUX_MSG_TOKEN.*/REGLINUX_MSG_TOKEN = $GH_TOKEN/" configs/reglinux-board.common
+          echo "${GH_TOKEN}" > ./gh_token
           
-
-          # DEBUG
-          grep REGLINUX_MSG configs/reglinux-board.common || :
-
-
-
           # Use cached toolchain if available from REG-Linux/REG-llvm-binaries
           cacheHASHshort="${{ hashFiles('custom/package/*llvm*/**', '.gitmodules') }}"
           cacheHASHshort="${cacheHASHshort:0:7}"
