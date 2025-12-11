@@ -20,7 +20,8 @@ jobs:
       dorelease: ${{ steps.compile_regmsg_step.outputs.dorelease }}
     strategy:
       matrix:
-        cpu: [arm1176jzf_s, cortex_a7, cortex_a9, cortex_a15_a7, cortex_a17, cortex_a35, cortex_a53, cortex_a55, cortex_a72, cortex_a72_a53, cortex_a73_a53, cortex_a75_a55, cortex_a76, cortex_a76_a55, riscv, saphira, x86_64, x86_64_v3]
+        # cpu: [arm1176jzf_s, cortex_a7, cortex_a9, cortex_a15_a7, cortex_a17, cortex_a35, cortex_a53, cortex_a55, cortex_a72, cortex_a72_a53, cortex_a73_a53, cortex_a75_a55, cortex_a76, cortex_a76_a55, riscv, saphira, x86_64, x86_64_v3]
+        cpu: [cortex_a7]
         include:
           ## MUSL 32 bit
           #- target: bcm2835
@@ -111,6 +112,7 @@ jobs:
           GH_TOKEN: ${{ secrets.REG_TOKEN }}
         run: |
           regmsgversion="$(sed -n 's/^REGLINUX_MSG_VERSION[[:space:]]*=[[:space:]]*\([0-9a-fA-F]\{7\}\).*/\1/p' package/system/reglinux-msg/reglinux-msg.mk)"
+          echo "regmsgversion=$regmsgversion"
           echo "regmsgversion=$regmsgversion" >> "$GITHUB_OUTPUT"
             
           # Patch Makefile to use 'reglinux-build:latest' docker image from ghcr.io
@@ -133,6 +135,12 @@ jobs:
           sed -i 's/#BR2_PACKAGE_REGLINUX_MSG_BUILD_FROM_SOURCE=y/BR2_PACKAGE_REGLINUX_MSG_BUILD_FROM_SOURCE=y/' configs/reglinux-board.common
           sed -i "s/^REGLINUX_MSG_TOKEN.*/REGLINUX_MSG_TOKEN = $GH_TOKEN/" configs/reglinux-board.common
           
+
+          # DEBUG
+          grep REGLINUX_MSG configs/reglinux-board.common || :
+
+
+
           # Use cached toolchain if available from REG-Linux/REG-llvm-binaries
           cacheHASHshort="${{ hashFiles('custom/package/*llvm*/**', '.gitmodules') }}"
           cacheHASHshort="${cacheHASHshort:0:7}"
