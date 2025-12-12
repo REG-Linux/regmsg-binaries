@@ -20,66 +20,65 @@ jobs:
       dorelease: ${{ steps.compile_regmsg_step.outputs.dorelease }}
     strategy:
       matrix:
-        # cpu: [arm1176jzf_s, cortex_a7, cortex_a9, cortex_a15_a7, cortex_a17, cortex_a35, cortex_a53, cortex_a55, cortex_a72, cortex_a72_a53, cortex_a73_a53, cortex_a75_a55, cortex_a76, cortex_a76_a55, riscv, saphira, x86_64, x86_64_v3]
-        cpu: [cortex_a7, cortex_a76_a55, x86_64_v3]
+        cpu: [arm1176jzf_s, cortex_a7, cortex_a9, cortex_a15_a7, cortex_a17, cortex_a35, cortex_a53, cortex_a55, cortex_a72, cortex_a72_a53, cortex_a73_a53, cortex_a75_a55, cortex_a76, cortex_a76_a55, riscv, saphira, x86_64, x86_64_v3]
         include:
-          ## MUSL 32 bit
-          #- target: bcm2835
-          #  cpu: arm1176jzf_s
-          ## arch: armhf-musl
+          # MUSL 32 bit
+          - target: bcm2835
+            cpu: arm1176jzf_s
+          # arch: armhf-musl
           - target: h3
             cpu: cortex_a7
+           arch: armv7-musl
+          - target: s812
+            cpu: cortex_a9
           # arch: armv7-musl
-          #- target: s812
-          #  cpu: cortex_a9
-          ## arch: armv7-musl
-          #- target: odroidxu4
-          #  cpu: cortex_a15_a7
-          ## arch: armv7-musl
-          #- target: rk3288
-          #  cpu: cortex_a17
-          ## arch: armv7-musl
-          ## MUSL 64 bit
-          #- target: rk3326
-          #  cpu: cortex_a35
-          ## arch: aarch64-musl
-          #- target: h616
-          #  cpu: cortex_a53
-          ## arch: aarch64-musl
-          ## - target: jz4770
-          ##   cpu: jz4770
-          ##   arch: mips-musl
-          ## GLIBC
-          #- target: rk3568
-          #  cpu: cortex_a55
-          ## arch: aarch64-glibc
-          #- target: bcm2711
-          #  cpu: cortex_a72
-          ## arch: aarch64-glibc
-          #- target: rk3399
-          #  cpu: cortex_a72_a53
-          ## arch: aarch64-glibc
-          #- target: s922x
-          #  cpu: cortex_a73_a53
-          ## arch: aarch64-glibc
-          #- target: odin
-          #  cpu: cortex_a75_a55
-          ## arch: aarch64-glibc
-          #- target: bcm2712
-          #  cpu: cortex_a76
-          ## arch: aarch64-glibc
+          - target: odroidxu4
+            cpu: cortex_a15_a7
+          # arch: armv7-musl
+          - target: rk3288
+            cpu: cortex_a17
+          # arch: armv7-musl
+          # MUSL 64 bit
+          - target: rk3326
+            cpu: cortex_a35
+          # arch: aarch64-musl
+          - target: h616
+            cpu: cortex_a53
+          # arch: aarch64-musl
+          # - target: jz4770
+          #   cpu: jz4770
+          #   arch: mips-musl
+          # GLIBC
+          - target: rk3568
+            cpu: cortex_a55
+          # arch: aarch64-glibc
+          - target: bcm2711
+            cpu: cortex_a72
+          # arch: aarch64-glibc
+          - target: rk3399
+            cpu: cortex_a72_a53
+          # arch: aarch64-glibc
+          - target: s922x
+            cpu: cortex_a73_a53
+          # arch: aarch64-glibc
+          - target: odin
+            cpu: cortex_a75_a55
+          # arch: aarch64-glibc
+          - target: bcm2712
+            cpu: cortex_a76
+          # arch: aarch64-glibc
           - target: sm8250
             cpu: cortex_a76_a55
-          # arch: aarch64-glibc
-          #- target: jh7110
-          #  cpu: riscv
-          ## arch: riscv-glibc
-          #- target: asahi
-          #  cpu: saphira
-          ## arch: asahi-glibc
-          #- target: x86_64
-          #  cpu: x86_64
-          ## arch: x86_64-glibc
+           arch: aarch64-glibc
+          - target: jh7110
+            cpu: riscv
+          # arch: riscv-glibc
+          - target: asahi
+            cpu: saphira
+          # arch: asahi-glibc
+          - target: x86_64
+            cpu: x86_64
+          # arch: x86_64-glibc
           - target: x86_64_v3
             cpu: x86_64_v3
           # arch: x86_64-glibc
