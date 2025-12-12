@@ -2,6 +2,8 @@ name: Build regmsg binaries
 
 on:
   workflow_dispatch:
+  repository_dispatch:
+    types: [trigger-workflow]
 
 concurrency:
     group: ${{ github.repository }}-${{ github.workflow }}
@@ -28,7 +30,7 @@ jobs:
           # arch: armhf-musl
           - target: h3
             cpu: cortex_a7
-           arch: armv7-musl
+          # arch: armv7-musl
           - target: s812
             cpu: cortex_a9
           # arch: armv7-musl
@@ -69,7 +71,7 @@ jobs:
           # arch: aarch64-glibc
           - target: sm8250
             cpu: cortex_a76_a55
-           arch: aarch64-glibc
+          # arch: aarch64-glibc
           - target: jh7110
             cpu: riscv
           # arch: riscv-glibc
