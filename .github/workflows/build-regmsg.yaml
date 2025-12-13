@@ -34,9 +34,9 @@ jobs:
           - target: s812
             cpu: cortex_a9
           # arch: armv7-musl
-          - target: odroidxu4
-            cpu: cortex_a15_a7
-          # arch: armv7-musl
+          ##- target: odroidxu4
+          ##  cpu: cortex_a15_a7
+          ### arch: armv7-musl
           - target: rk3288
             cpu: cortex_a17
           # arch: armv7-musl
@@ -47,9 +47,9 @@ jobs:
           - target: h616
             cpu: cortex_a53
           # arch: aarch64-musl
-          # - target: jz4770
-          #   cpu: jz4770
-          #   arch: mips-musl
+          ##- target: jz4770
+          ##  cpu: jz4770
+          ### arch: mips-musl
           # GLIBC
           - target: rk3568
             cpu: cortex_a55
