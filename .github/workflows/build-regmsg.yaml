@@ -102,7 +102,7 @@ jobs:
           rm -rf "${{ github.workspace }}"
           mkdir -p "${{ github.workspace }}"
           cd "${{ github.workspace }}"
-          git clone --recurse-submodules --depth 1 --shallow-submodules --single-branch --branch master "https://github.com/REG-Linux/REG-Linux.git" .
+          git clone --recurse-submodules --depth 1 --shallow-submodules --single-branch --branch master "https://github.com/REG-Linux/REG-WIP.git" .
           git config --global --add safe.directory "${{ github.workspace }}"
           git config user.name "${{ github.repository_owner }}"
           git config user.email "${{ github.repository_owner }}@users.noreply.github.com"
@@ -180,7 +180,7 @@ jobs:
       - name: Upload artifacts
         if: ${{ steps.compile_regmsg_step.outputs.dorelease == 'true' && ! cancelled() }}
         id: upload_artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: reglinux-msg-${{ steps.compile_regmsg_step.outputs.regmsgversion }}-${{ matrix.cpu }}
           compression-level: 0
@@ -193,7 +193,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           pattern: reglinux-msg-${{ needs.compile-regmsg.outputs.regmsgversion }}-*
           path: ./
