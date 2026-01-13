@@ -97,22 +97,20 @@ jobs:
 
       - name: Clone repository
         id: clone_step
-        run: |
-          cd ..
-          rm -rf "${{ github.workspace }}"
-          mkdir -p "${{ github.workspace }}"
-          cd "${{ github.workspace }}"
-          git clone --recurse-submodules --depth 1 --shallow-submodules --single-branch --branch master "https://github.com/REG-Linux/REG-WIP.git" .
-          git config --global --add safe.directory "${{ github.workspace }}"
-          git config user.name "${{ github.repository_owner }}"
-          git config user.email "${{ github.repository_owner }}@users.noreply.github.com"
-          git config --local user.password ${{ github.token }}
+        uses: actions/checkout@v6
+        with:
+          repository: REG-Linux/REG-WIP
+          token: ${{ secrets.REG_TOKEN }}
+          submodules: true
 
       - name: Compile regmsg
         id: compile_regmsg_step
         env:
           GH_TOKEN: ${{ secrets.REG_TOKEN }}
         run: |
+          git config user.name "${{ github.repository_owner }}"
+          git config user.email "${{ github.repository_owner }}@users.noreply.github.com"
+          git config --local user.password ${{ github.token }}
           regmsgversion="$(sed -n 's/^REGLINUX_MSG_VERSION[[:space:]]*=[[:space:]]*\([0-9a-fA-F]\{7\}\).*/\1/p' package/system/reglinux-msg/reglinux-msg.mk)"
           echo "regmsgversion=$regmsgversion"
           echo "regmsgversion=$regmsgversion" >> "$GITHUB_OUTPUT"
