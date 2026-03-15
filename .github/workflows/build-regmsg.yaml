@@ -35,9 +35,9 @@ jobs:
           - target: s812
             cpu: cortex_a9
           # arch: armv7-musl
-          ##- target: odroidxu4
-          ##  cpu: cortex_a15_a7
-          ### arch: armv7-musl
+          - target: odroidxu4
+            cpu: cortex_a15_a7
+          # arch: armv7-musl
           - target: rk3288
             cpu: cortex_a17
           # arch: armv7-musl
