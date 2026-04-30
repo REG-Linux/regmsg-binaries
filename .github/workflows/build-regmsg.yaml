@@ -186,7 +186,7 @@ jobs:
           path: ./
           merge-multiple: true
       - name: Create release
-        uses: softprops/action-gh-release@v2.6.1
+        uses: softprops/action-gh-release@v3
         with:
           repository: REG-Linux/regmsg-binaries
           token: ${{ secrets.REG_TOKEN }}
