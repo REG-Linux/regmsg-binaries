@@ -125,7 +125,9 @@ jobs:
             sed -i '/BR2_CCACHE/d' configs/reglinux-board.common
             
             # After each package is installed, delete downloaded files
+            ./scripts/buildroot/mergeToBR.sh
             sed -i '/stamp_installed\:/,/stamp_dircleaned\:/ s:^$:\trm -rfv "\$(\$(PKG)_DL_DIR)"\n:' buildroot/package/pkg-generic.mk
+            sed -i 's|merge \.ba-docker-image-available|\.ba-docker-image-available|' Makefile
             
             # Temp fix for riscv64
             # sed -i 's/ -mabi=lp64d -mcpu=sifive-u74//' configs/reglinux-jh7110.board || :
