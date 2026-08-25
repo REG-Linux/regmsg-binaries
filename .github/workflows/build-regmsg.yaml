@@ -13,13 +13,94 @@ permissions:
   contents: write
   actions: write
 
+env:
+  LANG: en_US.UTF-8
+  LANGUAGE: en_US:en
+  LC_ALL: en_US.UTF-8
+  FORCE_UNSAFE_CONFIGURE: 1
+
 jobs:
+  # Fetch once what every leg would otherwise fetch for itself. Source tarballs
+  # are architecture-independent - the Rust host toolchain alone is 188 MB that
+  # 19 legs were each pulling - so download them here and hand them over as an
+  # artifact. Matrix legs get separate runners with separate disks, so an
+  # artifact (or a cache) is the only way to share; an artifact also pays off on
+  # the very first run, which a cache cannot, because caches are only saved when
+  # a job ends.
+  #
+  # `-all-source`, not `-source`: pkg-generic.mk defines `-source` as one
+  # package's own archive, and only `-all-source` recurses over
+  # FINAL_ALL_DEPENDENCIES. regmsg's 188 MB toolchain and its libdrm/alsa/
+  # pulseaudio deps are dependencies, so `-source` would bundle just the 55 MB
+  # vendored crate tarball and quietly leave the expensive part behind.
+  #
+  # Not `<target>-source` either - that is buildroot's tree-wide `source` goal,
+  # which downloads every enabled package in the tree.
+  #
+  # The target chosen here only decides which per-triple rust-std lands in the
+  # bundle; everything else in the closure is arch-independent, the vendored
+  # tarball included - its name carries no arch. Legs on another triple simply
+  # fetch their own ~27 MB rust-std on top.
+  prepare:
+    name: Prepare shared downloads
+    runs-on: ubuntu-latest
+    steps:
+      - name: Login to GHCR
+        uses: docker/login-action@v4.0.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Clone repository
+        uses: actions/checkout@v6.0.2
+        with:
+          repository: REG-Linux/REG-WIP
+          token: ${{ secrets.REG_TOKEN }}
+          submodules: true
+
+      - name: Download sources
+        env:
+          GH_TOKEN: ${{ secrets.REG_TOKEN }}
+        run: |
+          # Patch Makefile to use 'reglinux-build:latest' docker image from ghcr.io
+          sed -i '/^DOCKER_REPO/ s|reglinux|ghcr.io/reg-linux|' Makefile
+          sed -i '/ build . -t /d' Makefile
+          # fix for error "failed to set up container networking"
+          sed -i 's| --rm | --rm --network host |' Makefile
+
+          # Merge buildroot patches
+          CUSTOM_DIR=${{ github.workspace }}/custom BUILDROOT_DIR=${{ github.workspace }}/buildroot ${{ github.workspace }}/scripts/buildroot/mergeToBR.sh
+
+          # Build regmsg from source, or the source we want is never referenced
+          sed -i 's/#BR2_PACKAGE_REGLINUX_MSG_BUILD_FROM_SOURCE=y/BR2_PACKAGE_REGLINUX_MSG_BUILD_FROM_SOURCE=y/' configs/reglinux-board.common
+          echo "${GH_TOKEN}" > ./gh_token
+
+          # Deliberately NOT installing ci-free-space.mk here: its hook drops a
+          # package's downloads once it is installed, and host-rust-bin does get
+          # installed on the way to vendoring the crates. That is exactly the
+          # 188 MB this job exists to keep.
+          make x86_64-build CMD=reglinux-msg-all-source
+
+          # One tarball rather than the raw tree: upload-artifact zips what it
+          # is given, and the git cache alone is a few thousand small files.
+          tar -cf dl.tar dl
+          echo "bundle contents:"
+          du -ah --max-depth=2 dl | sort -rh | head -20
+          du -h dl.tar
+
+      - name: Upload shared downloads
+        uses: actions/upload-artifact@v7.0.0
+        with:
+          name: regmsg-shared-downloads
+          compression-level: 0
+          retention-days: 1
+          path: dl.tar
+
   compile-regmsg:
     name: Compile regmsg
     runs-on: ubuntu-latest
-    outputs:
-      regmsgversion: ${{ steps.compile_regmsg_step.outputs.regmsgversion }}
-      dorelease: ${{ steps.compile_regmsg_step.outputs.dorelease }}
+    needs: prepare
     strategy:
       matrix:
         cpu: [arm1176jzf_s, cortex_a7, cortex_a9, cortex_a15_a7, cortex_a17, cortex_a35, cortex_a53, cortex_a55, cortex_a72, cortex_a72_a53, cortex_a73_a53, cortex_a75_a55, cortex_a76, cortex_a76_a55, jz4770, riscv, saphira, x86_64, x86_64_v3]
@@ -102,6 +183,35 @@ jobs:
           token: ${{ secrets.REG_TOKEN }}
           submodules: true
 
+      # REG-WIP owns the workspace root and actions/checkout cleans its
+      # checkout path, so this repository - which carries the CI-only
+      # scripts/ci-free-space.mk - has to be checked out after it, beside it.
+      - name: Clone this repository
+        uses: actions/checkout@v6.0.2
+        with:
+          path: ci
+
+      # Restored after both checkouts, which clean their paths. Failure is not
+      # fatal: without the bundle each leg just downloads for itself, which is
+      # what it did before this job existed.
+      - name: Restore shared downloads
+        continue-on-error: true
+        uses: actions/download-artifact@v8.0.1
+        with:
+          name: regmsg-shared-downloads
+          path: ${{ github.workspace }}
+
+      - name: Unpack shared downloads
+        continue-on-error: true
+        run: |
+          if [ -f dl.tar ]; then
+            tar -xf dl.tar && rm -f dl.tar
+            echo "shared downloads restored:"
+            du -sh dl
+          else
+            echo "no shared download bundle; this leg will fetch its own"
+          fi
+
       - name: Compile regmsg
         id: compile_regmsg_step
         env:
@@ -123,24 +233,38 @@ jobs:
             # Disable CCACHE
             sed -i '/BR2_CCACHE/d' configs/reglinux-board.common
             
-            # After each package is installed, delete downloaded files
-            ./scripts/buildroot/mergeToBR.sh
-            sed -i '/stamp_installed\:/,/stamp_dircleaned\:/ s:^$:\trm -rfv "\$(\$(PKG)_DL_DIR)"\n:' buildroot/package/pkg-generic.mk
-            sed -i 's|merge \.ba-docker-image-available|\.ba-docker-image-available|' Makefile
-            
-            # Temp fix for riscv64
-            # sed -i 's/ -mabi=lp64d -mcpu=sifive-u74//' configs/reglinux-jh7110.board || :
-            
-            # Hack needed to retrieve the proper staging name directory when packaging
-            #sed -i '/stamp_staging_installed\:/,/stamp_images_installed\:/ s:^$:\techo "host/\$(GNU_TARGET_NAME)/sysroot" > "\$(BUILD_DIR)/staging.dir"\n:' buildroot/package/pkg-generic.mk
+            # Merge buildroot patches
+            CUSTOM_DIR=${{ github.workspace }}/custom BUILDROOT_DIR=${{ github.workspace }}/buildroot ${{ github.workspace }}/scripts/buildroot/mergeToBR.sh
+
+            # After each package is installed, delete downloaded files.
+            #
+            # Via local.mk, which buildroot includes before every package .mk,
+            # rather than sed'ing buildroot/package/pkg-generic.mk: that file is
+            # owned by custom/package/pkg-generic.mk.patch, so the next make
+            # re-runs mergeToBR.sh over the edit and aborts on the MD5 check -
+            # which is why the old version also had to strip the `merge`
+            # dependency out of the Makefile to survive. The hook version also
+            # keeps a tarball a host/target twin still needs, instead of
+            # deleting it and downloading it a second time.
+            mkdir -p "output/${{ matrix.target }}"
+            cp ci/scripts/ci-free-space.mk "output/${{ matrix.target }}/local.mk"
             
             # Enable the flag and token to build regmsg from source
             sed -i 's/#BR2_PACKAGE_REGLINUX_MSG_BUILD_FROM_SOURCE=y/BR2_PACKAGE_REGLINUX_MSG_BUILD_FROM_SOURCE=y/' configs/reglinux-board.common
             echo "${GH_TOKEN}" > ./gh_token
             
             # Use cached toolchain if available from REG-Linux/REG-llvm-binaries
-            cacheHASHshort="${{ hashFiles('custom/package/*llvm*/**', '.gitmodules') }}"
-            cacheHASHshort="${cacheHASHshort:0:7}"
+            #
+            # The key has to change whenever the toolchain would be built
+            # differently. hashFiles() cannot see git state, and .gitmodules
+            # records only the submodule's path and url - it does NOT change
+            # when the buildroot commit is bumped, so keying on it handed back
+            # a toolchain built against a different Buildroot. Fold in the
+            # commit the superproject actually pins; reading it from the tree
+            # (HEAD:buildroot) works regardless of how the submodule checkout
+            # is configured.
+            buildrootsha="$(git rev-parse HEAD:buildroot)"
+            cacheHASHshort="$(printf '%s%s' "${{ hashFiles('custom/package/*llvm*/**') }}" "${buildrootsha}" | sha256sum | cut -c1-7)"
             if curl -s -L "https://github.com/REG-Linux/REG-llvm-binaries/releases/download/toolchain-${{ matrix.cpu }}/toolchain-${{ matrix.cpu }}-${cacheHASHshort}.tar.xz" | tar -xJf - 2>/dev/null
             then
               echo "toolchain-${{ matrix.cpu }}-${cacheHASHshort}.tar.xz extracted"
@@ -155,6 +279,10 @@ jobs:
               echo "Toolchain cache created"
               rm "toolchain-${{ matrix.cpu }}-${cacheHASHshort}.tar.xz"
             fi
+
+            # The toolchain cache tarball carries output/, so re-drop local.mk
+            # in case an older cached tree shipped one and overwrote ours.
+            cp ci/scripts/ci-free-space.mk "output/${{ matrix.target }}/local.mk"
           
             jobsandload="-j$(( $(nproc) - 1 ))"
             PARALLEL_BUILD=n DEBUG_BUILD=n CCACHE_DISABLE=1 make ${jobsandload} PKG=reglinux-msg ${{ matrix.target }}-pkg
@@ -174,26 +302,58 @@ jobs:
           compression-level: 0
           path: reglinux-msg-${{ steps.compile_regmsg_step.outputs.regmsgversion }}-*
 
+      - name: Upload full-build.log on failure
+        if: failure()
+        uses: actions/upload-artifact@v7.0.0
+        with:
+          name: full-build-log-${{ matrix.target }}
+          path: ${{ github.workspace }}/output/${{ matrix.target }}/build/full-build.log
+
   create_release:
     name: Create release
     needs: compile-regmsg
-    if: ${{ needs.compile-regmsg.outputs.dorelease == 'true' && ! cancelled() }}
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v8.0.1
         with:
-          pattern: reglinux-msg-${{ needs.compile-regmsg.outputs.regmsgversion }}-*
-          path: ./
+          pattern: reglinux-msg-*
+          path: artifacts
           merge-multiple: true
+
+      # A matrix job cannot aggregate a "did anything build?" flag: every leg
+      # writes the same job output and the last one to finish wins, so a leg
+      # that skipped the build - because its tarball was already released -
+      # left dorelease empty and suppressed the release for every leg that did
+      # build. The artifacts are the aggregate: only legs that built something
+      # upload one, and the version is already in their file names.
+      - name: Decide whether there is anything to release
+        id: rel
+        run: |
+          shopt -s nullglob
+          files=(artifacts/reglinux-msg-*.tar.xz)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No new tarballs were built; nothing to release."
+            exit 0
+          fi
+          regmsgversion="$(basename "${files[0]}" | sed -nE 's/^reglinux-msg-([0-9a-f]{7})-.*\.tar\.xz$/\1/p')"
+          if [ -z "$regmsgversion" ]; then
+            echo "Could not parse regmsg version from ${files[0]}"
+            exit 1
+          fi
+          echo "Releasing ${#files[@]} tarball(s) as ${regmsgversion}"
+          echo "regmsgversion=${regmsgversion}" >> "$GITHUB_OUTPUT"
+
       - name: Create release
+        if: ${{ steps.rel.outputs.regmsgversion != '' }}
         uses: softprops/action-gh-release@v3
         with:
           repository: REG-Linux/regmsg-binaries
           token: ${{ secrets.REG_TOKEN }}
-          files: reglinux-msg-${{ needs.compile-regmsg.outputs.regmsgversion }}-*
-          tag_name: ${{ needs.compile-regmsg.outputs.regmsgversion }}
+          files: artifacts/reglinux-msg-${{ steps.rel.outputs.regmsgversion }}-*
+          tag_name: ${{ steps.rel.outputs.regmsgversion }}
           prerelease: false
           make_latest: true
           generate_release_notes: true
-          name: regmsg binaries (${{ needs.compile-regmsg.outputs.regmsgversion }})
+          name: regmsg binaries (${{ steps.rel.outputs.regmsgversion }})
