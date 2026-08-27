@@ -103,7 +103,7 @@ jobs:
     needs: prepare
     strategy:
       matrix:
-        cpu: [arm1176jzf_s, cortex_a7, cortex_a9, cortex_a15_a7, cortex_a17, cortex_a35, cortex_a53, cortex_a55, cortex_a72, cortex_a72_a53, cortex_a73_a53, cortex_a75_a55, cortex_a76, cortex_a76_a55, jz4770, riscv, saphira, x86_64, x86_64_v3]
+        cpu: [arm1176jzf_s, cortex_a7, cortex_a9, cortex_a15_a7, cortex_a17, cortex_a35, cortex_a53, cortex_a55, cortex_a72, cortex_a72_a53, cortex_a73_a53, cortex_a75_a55, cortex_a76, cortex_a76_a55, xburst, riscv, saphira, x86_64, x86_64_v3]
         include:
           # MUSL 32 bit
           - target: bcm2835
@@ -129,7 +129,7 @@ jobs:
             cpu: cortex_a53
           # arch: aarch64-musl
           - target: jz4770
-            cpu: jz4770
+            cpu: xburst
           # arch: mipsel-musl
           # GLIBC
           - target: rk3568
