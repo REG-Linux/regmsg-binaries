@@ -357,3 +357,43 @@ jobs:
           make_latest: true
           generate_release_notes: true
           name: regmsg binaries (${{ steps.rel.outputs.regmsgversion }})
+
+      # Keep the release list bounded: the three newest of each family this
+      # workflow publishes, older ones deleted along with their tags (the same
+      # --cleanup-tag idiom the toolchain cache already uses).
+      #
+      # The filter is an ALLOWLIST of the tags this workflow itself creates,
+      # never a denylist. toolchain-<cpu> caches, hand-made releases and older
+      # naming schemes cannot match these patterns, so they are never at risk.
+      # Pruning is scoped to the families actually released in this run.
+      - name: Prune old releases
+        if: ${{ steps.rel.outputs.regmsgversion != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.REG_TOKEN }}
+        run: |
+          set -euo pipefail
+          if ! command -v gh >/dev/null 2>&1; then
+            echo "::warning::gh is not installed on this runner; skipping release pruning"
+            exit 0
+          fi
+          KEEP=3
+          prune() {
+            pattern="$1"
+            echo "== keeping the ${KEEP} newest releases matching ${pattern}"
+            # Newest first, restrict to this family, then drop the first KEEP.
+            # grep is allowed to match nothing, hence the || true.
+            doomed="$(gh release list --limit 200 -R REG-Linux/regmsg-binaries --json tagName,createdAt \
+                        --jq 'sort_by(.createdAt) | reverse | .[].tagName' \
+                      | grep -E "${pattern}" | tail -n +$((KEEP + 1)) || true)"
+            if [ -z "${doomed}" ]; then
+              echo "   nothing to remove"
+              return 0
+            fi
+            printf '%s\n' "${doomed}" | while read -r tag; do
+              [ -n "${tag}" ] || continue
+              echo "   deleting ${tag}"
+              gh release delete "${tag}" -R REG-Linux/regmsg-binaries --cleanup-tag --yes \
+                || echo "::warning::could not delete release ${tag}"
+            done
+          }
+          prune '^[0-9a-f]{7}$'
