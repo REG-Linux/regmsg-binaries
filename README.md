@@ -27,8 +27,21 @@ https://github.com/REG-Linux/REG-Linux.
 
 ## Integrity checks
 
-regmsgd checks that its own binary and a few REG-Linux boot and branding
-files have not been modified, and that no debugger is attached. If a check
-fails, game launching and authenticated scraping stop working. Editing the
-launch generators or action tables does not trigger these checks.
-LICENSE.md section 3 has the details.
+regmsgd checks that its own binary and a few REG-Linux boot and branding files
+have not been modified, and that no debugger or tracer is attached. If a check fails,
+game launching and scraping with our credentials stop working, without any warning.
+Editing the launch generators or action tables does not trigger these checks.
+LICENSE.md section 3 also addresses this subject.
+
+The checked files are:
+
+- `/usr/bin/regmsgd`
+- `/etc/init.d/S06regmsgd`
+- `/etc/init.d/S002plymouth`
+- `/etc/plymouth/plymouthd.conf`
+- `/usr/share/plymouth/themes/reglinux-arcade/reglinux-arcade.plymouth`
+- `/usr/share/plymouth/themes/reglinux-arcade/logo_frame_9.png`
+
+This applies to edits made on a device and to images built with these
+binaries: the boot-splash files come from `package/boot/plymouth/` in the
+REG-Linux tree, so changing them there breaks a self-built image too.

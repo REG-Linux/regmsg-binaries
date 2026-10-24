@@ -60,7 +60,7 @@ restricts them.
 
 `regmsgd` checks that its own executable and a small set of REG-Linux
 boot and branding files have not been changed. It also checks that no
-debugger is attached. If any check fails, the scraper credentials stay
+debugger is attached. If any check fails, our scraper credentials stay
 locked and the daemon will not launch games. It does not delete,
 encrypt or upload anything, and it never contacts a server to make this
 decision.
