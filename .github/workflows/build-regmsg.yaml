@@ -263,8 +263,30 @@ jobs:
             # commit the superproject actually pins; reading it from the tree
             # (HEAD:buildroot) works regardless of how the submodule checkout
             # is configured.
+            #
+            # The toolchain is not only llvm and the Buildroot commit: the gcc,
+            # binutils, libc and kernel-headers overlays in custom/, the
+            # toolchain-*.common the board includes, and the board's own
+            # arch/cpu/headers lines all decide what gets built. Leaving them
+            # out handed back a cache built before a gcc or headers bump:
+            # Buildroot then rebuilt gcc on top of it (~23 min per leg) and,
+            # since the key still "hit", the cache was never refreshed.
+            # Package selections (BR2_PACKAGE_*) are left out on purpose, so
+            # ordinary package changes keep the cache.
             buildrootsha="$(git rev-parse HEAD:buildroot)"
-            cacheHASHshort="$(printf '%s%s' "${{ hashFiles('custom/package/*llvm*/**') }}" "${buildrootsha}" | sha256sum | cut -c1-7)"
+            board="configs/reglinux-${{ matrix.target }}.board"
+            toolchaincommon="configs/$(sed -n 's/^include[[:space:]]*\(toolchain-[^[:space:]]*\.common\).*/\1/p' "${board}")"
+            tcre='^BR2_([a-z]|ARM|AARCH64|ARM64|RISCV|MIPS|X86|GCC|BINUTILS|TOOLCHAIN|KERNEL_HEADERS|PACKAGE_HOST_LINUX_HEADERS|SSP|ENABLE_LOCALE|GENERATE_LOCALE|SYSTEM_ENABLE_NLS|OPTIMIZE|ENABLE_LTO|SHARED|STATIC|PIC|RELRO|FORTIFY|TARGET_OPTIMIZATION|TARGET_LDFLAGS|GLOBAL_PATCH_DIR)'
+            toolchaininputs="$(
+              grep -hE "${tcre}" "${board}" configs/reglinux-board.common || :
+              # Kernel headers taken from the board's own kernel follow its version.
+              grep -q '^BR2_KERNEL_HEADERS_AS_KERNEL=y' "${board}" && grep -h '^BR2_LINUX_KERNEL_CUSTOM' "${board}"
+              cat "${toolchaincommon}"
+            )"
+            cacheHASHshort="$(printf '%s%s%s' \
+              "${{ hashFiles('custom/package/*llvm*/**', 'custom/package/gcc/**', 'custom/package/binutils/**', 'custom/package/glibc/**', 'custom/package/musl/**', 'custom/package/linux-headers/**', 'custom/toolchain/**') }}" \
+              "${buildrootsha}" "${toolchaininputs}" | sha256sum | cut -c1-7)"
+            echo "toolchain cache key ${cacheHASHshort} (${toolchaincommon})"
             if curl -s -L "https://github.com/REG-Linux/REG-llvm-binaries/releases/download/toolchain-${{ matrix.cpu }}/toolchain-${{ matrix.cpu }}-${cacheHASHshort}.tar.xz" | tar -xJf - 2>/dev/null
             then
               echo "toolchain-${{ matrix.cpu }}-${cacheHASHshort}.tar.xz extracted"
@@ -291,6 +313,24 @@ jobs:
             cat build/reglinux-msg*/.files-list.txt | cut -d ',' -f 2 | sed -e 's+^./+target/+g' >>reglinux-msg-filelist.txt
             XZ_OPT=-9 tar -cJf "${{ github.workspace }}/reglinux-msg-${regmsgversion}-${{ matrix.cpu }}.tar.xz" --verbatim-files-from -T reglinux-msg-filelist.txt || :
             echo "dorelease=true" >> "$GITHUB_OUTPUT"
+
+            # Publish this leg's tarball right away rather than waiting for the
+            # whole matrix: builds download their own cpu's file by tag, so it
+            # is usable as soon as it is up, and the slowest leg (or a cancelled
+            # run) no longer holds back the others. The first leg to finish
+            # creates the release; a leg that loses that race just uploads.
+            # create_release below still re-uploads every artifact and marks
+            # the release latest, so a failed upload here is not fatal.
+            cd "${{ github.workspace }}"
+            repo=REG-Linux/regmsg-binaries
+            gh release view "${regmsgversion}" -R "${repo}" >/dev/null 2>&1 \
+              || gh release create "${regmsgversion}" -R "${repo}" --title "regmsg binaries (${regmsgversion})" --generate-notes --latest=false >/dev/null 2>&1 \
+              || gh release view "${regmsgversion}" -R "${repo}" >/dev/null 2>&1 \
+              || echo "::warning::could not create release ${regmsgversion}; create_release will"
+            for try in 1 2 3; do
+              gh release upload "${regmsgversion}" "reglinux-msg-${regmsgversion}-${{ matrix.cpu }}.tar.xz" -R "${repo}" --clobber && break
+              [ "${try}" = 3 ] && echo "::warning::upload failed; create_release will retry" || sleep 10
+            done
           fi
 
       - name: Upload artifacts
@@ -345,18 +385,21 @@ jobs:
           echo "Releasing ${#files[@]} tarball(s) as ${regmsgversion}"
           echo "regmsgversion=${regmsgversion}" >> "$GITHUB_OUTPUT"
 
+      # The legs already published their own tarballs; this makes sure every
+      # built tarball is on the release (re-uploading is harmless) and marks
+      # it latest once the whole matrix is done.
       - name: Create release
         if: ${{ steps.rel.outputs.regmsgversion != '' }}
-        uses: softprops/action-gh-release@v3
-        with:
-          repository: REG-Linux/regmsg-binaries
-          token: ${{ secrets.REG_TOKEN }}
-          files: artifacts/reglinux-msg-${{ steps.rel.outputs.regmsgversion }}-*
-          tag_name: ${{ steps.rel.outputs.regmsgversion }}
-          prerelease: false
-          make_latest: true
-          generate_release_notes: true
-          name: regmsg binaries (${{ steps.rel.outputs.regmsgversion }})
+        env:
+          VER: ${{ steps.rel.outputs.regmsgversion }}
+          GH_TOKEN: ${{ secrets.REG_TOKEN }}
+        run: |
+          set -euo pipefail
+          repo=REG-Linux/regmsg-binaries
+          gh release view "${VER}" -R "${repo}" >/dev/null 2>&1 \
+            || gh release create "${VER}" -R "${repo}" --title "regmsg binaries (${VER})" --generate-notes
+          gh release upload "${VER}" artifacts/reglinux-msg-"${VER}"-* -R "${repo}" --clobber
+          gh release edit "${VER}" -R "${repo}" --latest --prerelease=false
 
       # Keep the release list bounded: the three newest of each family this
       # workflow publishes, older ones deleted along with their tags (the same
