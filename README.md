@@ -13,7 +13,7 @@ versions and will not work anywhere else.
 
 | Component | Licence |
 |-----------|---------|
-| `regmsgd`, `regmsg`, `regmsg_shell` | Proprietary. See [LICENSE.md](LICENSE.md) |
+| `regmsgd`, `regmsg`, `regmsg_shell` | Proprietary (`LicenseRef-regmsg`). See [LICENSE.md](LICENSE.md) |
 | Lua launch generators and controller action tables (readable in each archive) | Proprietary. You may change them on your own device but not distribute modified copies. See [LICENSE.md](LICENSE.md) |
 | `libdrmhook.so`, `S06regmsgd`, and regmsg's original code inside the programs | MIT |
 | Crates, Lua 5.4 and jemalloc compiled into the binaries | Their own permissive licences |
