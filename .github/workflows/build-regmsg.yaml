@@ -2,6 +2,11 @@ name: Build regmsg binaries
 
 on:
   workflow_dispatch:
+    inputs:
+      skip_existing:
+        description: 'Skip CPUs whose tarball is already on the release (off: rebuild all and recreate the release)'
+        type: boolean
+        default: true
   repository_dispatch:
     types: [trigger-workflow]
 
@@ -18,6 +23,9 @@ env:
   LANGUAGE: en_US:en
   LC_ALL: en_US.UTF-8
   FORCE_UNSAFE_CONFIGURE: 1
+  # Only a manual run can skip: a dispatch from REG-WIP always rebuilds, since
+  # the same regmsg version can ship with different packaging (e.g. plymouth).
+  SKIP_EXISTING: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_existing && 'true' || 'false' }}
 
 jobs:
   # Fetch once what every leg would otherwise fetch for itself. Source tarballs
@@ -88,6 +96,23 @@ jobs:
           echo "bundle contents:"
           du -ah --max-depth=2 dl | sort -rh | head -20
           du -h dl.tar
+
+      # A full rebuild starts from an empty release, so no asset from an older
+      # build of the same version survives next to the new ones.
+      - name: Drop existing release
+        if: ${{ env.SKIP_EXISTING != 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.REG_TOKEN }}
+        run: |
+          repo=REG-Linux/regmsg-binaries
+          ver="$(sed -n 's/^REGLINUX_MSG_VERSION[[:space:]]*=[[:space:]]*\([0-9a-fA-F]\{7\}\).*/\1/p' package/system/reglinux-msg/reglinux-msg.mk)"
+          [ -n "${ver}" ] || { echo "Could not parse regmsg version"; exit 1; }
+          if gh release view "${ver}" -R "${repo}" >/dev/null 2>&1; then
+            echo "deleting release ${ver} and its tag"
+            gh release delete "${ver}" -R "${repo}" --cleanup-tag --yes
+          fi
+          # A tag can outlive its release; drop it too so the new one is fresh.
+          gh api -X DELETE "repos/${repo}/git/refs/tags/${ver}" >/dev/null 2>&1 || :
 
       - name: Upload shared downloads
         uses: actions/upload-artifact@v7.0.0
@@ -227,7 +252,11 @@ jobs:
           echo "regmsgversion=$regmsgversion"
           echo "regmsgversion=$regmsgversion" >> "$GITHUB_OUTPUT"
 
-          [ "$(curl -o /dev/null -s -Iw '%{http_code}' -L "https://github.com/REG-Linux/regmsg-binaries/releases/download/${regmsgversion}/reglinux-msg-${regmsgversion}-${{ matrix.cpu }}.tar.xz")" -eq 200 ] && skip=y
+          skip=
+          if [ "${SKIP_EXISTING}" = true ] && [ "$(curl -o /dev/null -s -Iw '%{http_code}' -L "https://github.com/REG-Linux/regmsg-binaries/releases/download/${regmsgversion}/reglinux-msg-${regmsgversion}-${{ matrix.cpu }}.tar.xz")" -eq 200 ]; then
+            echo "reglinux-msg-${regmsgversion}-${{ matrix.cpu }}.tar.xz already released; skipping"
+            skip=y
+          fi
           if [ -z "$skip" ]; then
             # Patch Makefile to use 'reglinux-build:latest' docker image from ghcr.io
             sed -i '/^DOCKER_REPO/ s|reglinux|ghcr.io/reg-linux|' Makefile
