@@ -1,0 +1,372 @@
+name: Build regmsg binaries self-hosted
+
+on:
+  workflow_dispatch:
+    inputs:
+      skip_existing:
+        description: 'Skip CPUs whose tarball is already on the release (off: rebuild all and recreate the release)'
+        type: boolean
+        default: true
+
+concurrency:
+    group: ${{ github.repository }}-${{ github.workflow }}
+    cancel-in-progress: true
+
+permissions:
+  contents: write
+  actions: write
+
+env:
+  LANG: en_US.UTF-8
+  LANGUAGE: en_US:en
+  LC_ALL: en_US.UTF-8
+  FORCE_UNSAFE_CONFIGURE: 1
+  SKIP_EXISTING: ${{ inputs.skip_existing && 'true' || 'false' }}
+
+jobs:
+  # Warm the shared download directory once, so the legs find the sources
+  # there instead of all fetching the same tarballs at the same time. The
+  # hosted build-regmsg.yaml hands them over as an artifact because its legs
+  # run on separate disks; here they share the runner's $HOME.
+  #
+  # `-all-source`, not `-source`: only `-all-source` recurses over the
+  # dependencies, where the 188 MB Rust host toolchain is. The target only
+  # decides which per-triple rust-std lands here; legs on another triple fetch
+  # their own ~27 MB on top.
+  prepare:
+    name: Prepare shared downloads
+    runs-on: self-hosted
+    steps:
+      - name: Login to GHCR
+        uses: docker/login-action@v4.0.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Clone repository
+        uses: actions/checkout@v6.0.2
+        with:
+          repository: REG-Linux/REG-WIP
+          token: ${{ secrets.REG_TOKEN }}
+          submodules: true
+
+      - name: Download sources
+        env:
+          GH_TOKEN: ${{ secrets.REG_TOKEN }}
+        run: |
+          # Patch Makefile to use 'reglinux-build:latest' docker image from ghcr.io
+          sed -i '/^DOCKER_REPO/ s|reglinux|ghcr.io/reg-linux|' Makefile
+          sed -i '/ build . -t /d' Makefile
+          # fix for error "failed to set up container networking"
+          sed -i 's| --rm | --rm --network host |' Makefile
+
+          # Merge buildroot patches
+          CUSTOM_DIR=${{ github.workspace }}/custom BUILDROOT_DIR=${{ github.workspace }}/buildroot ${{ github.workspace }}/scripts/buildroot/mergeToBR.sh
+
+          # Build regmsg from source, or the source we want is never referenced
+          sed -i 's/#BR2_PACKAGE_REGLINUX_MSG_BUILD_FROM_SOURCE=y/BR2_PACKAGE_REGLINUX_MSG_BUILD_FROM_SOURCE=y/' configs/reglinux-board.common
+          echo "${GH_TOKEN}" > ./gh_token
+
+          export DL_DIR="${HOME}/reglinux-dl"
+          mkdir -p "$DL_DIR"
+          make x86_64-build CMD=reglinux-msg-all-source
+          du -sh "$DL_DIR"
+
+      # A full rebuild starts from an empty release, so no asset from an older
+      # build of the same version survives next to the new ones.
+      - name: Drop existing release
+        if: ${{ env.SKIP_EXISTING != 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.REG_TOKEN }}
+        run: |
+          repo=REG-Linux/regmsg-binaries
+          ver="$(sed -n 's/^REGLINUX_MSG_VERSION[[:space:]]*=[[:space:]]*\([0-9a-fA-F]\{7\}\).*/\1/p' package/system/reglinux-msg/reglinux-msg.mk)"
+          [ -n "${ver}" ] || { echo "Could not parse regmsg version"; exit 1; }
+          if gh release view "${ver}" -R "${repo}" >/dev/null 2>&1; then
+            echo "deleting release ${ver} and its tag"
+            gh release delete "${ver}" -R "${repo}" --cleanup-tag --yes
+          fi
+          # A tag can outlive its release; drop it too so the new one is fresh.
+          gh api -X DELETE "repos/${repo}/git/refs/tags/${ver}" >/dev/null 2>&1 || :
+
+  compile-regmsg:
+    name: Compile regmsg
+    runs-on: self-hosted
+    needs: prepare
+    strategy:
+      matrix:
+        cpu: [arm1176jzf_s, cortex_a7, cortex_a9, cortex_a15_a7, cortex_a17, cortex_a35, cortex_a53, cortex_a55, cortex_a72, cortex_a72_a53, cortex_a73_a53, cortex_a75_a55, cortex_a76, cortex_a76_a55, riscv, saphira, x86_64, x86_64_v3]
+        include:
+          # MUSL 32 bit
+          - target: bcm2835
+            cpu: arm1176jzf_s
+          # arch: armhf-musl
+          - target: h3
+            cpu: cortex_a7
+          # arch: armv7-musl
+          - target: s812
+            cpu: cortex_a9
+          # arch: armv7-musl
+          - target: odroidxu4
+            cpu: cortex_a15_a7
+          # arch: armv7-musl
+          - target: rk3288
+            cpu: cortex_a17
+          # arch: armv7-musl
+          # MUSL 64 bit
+          - target: rk3326
+            cpu: cortex_a35
+          # arch: aarch64-musl
+          - target: h616
+            cpu: cortex_a53
+          # arch: aarch64-musl
+          # xburst (jz4770) is off, as in build-regmsg.yaml: its leg builds
+          # host-rust from source for mipsel (~3h30 per run).
+          # - target: jz4770
+          #   cpu: xburst
+          # arch: mipsel-musl
+          # GLIBC
+          - target: rk3568
+            cpu: cortex_a55
+          # arch: aarch64-glibc
+          - target: bcm2711
+            cpu: cortex_a72
+          # arch: aarch64-glibc
+          - target: rk3399
+            cpu: cortex_a72_a53
+          # arch: aarch64-glibc
+          - target: s922x
+            cpu: cortex_a73_a53
+          # arch: aarch64-glibc
+          - target: sdm845
+            cpu: cortex_a75_a55
+          # arch: aarch64-glibc
+          - target: bcm2712
+            cpu: cortex_a76
+          # arch: aarch64-glibc
+          - target: sm8250
+            cpu: cortex_a76_a55
+          # arch: aarch64-glibc
+          - target: jh7110
+            cpu: riscv
+          # arch: riscv-glibc
+          - target: asahi
+            cpu: saphira
+          # arch: asahi-glibc
+          - target: x86_64
+            cpu: x86_64
+          # arch: x86_64-glibc
+          - target: x86_64_v3
+            cpu: x86_64_v3
+          # arch: x86_64-glibc
+      fail-fast: false
+
+    steps:
+      - name: Login to GHCR
+        uses: docker/login-action@v4.0.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Clone repository
+        id: clone_step
+        uses: actions/checkout@v6.0.2
+        with:
+          repository: REG-Linux/REG-WIP
+          token: ${{ secrets.REG_TOKEN }}
+          submodules: true
+
+      - name: Compile regmsg
+        id: compile_regmsg_step
+        env:
+          GH_TOKEN: ${{ secrets.REG_TOKEN }}
+        run: |
+          git config user.name "${{ github.repository_owner }}"
+          git config user.email "${{ github.repository_owner }}@users.noreply.github.com"
+          git config --local user.password ${{ github.token }}
+          regmsgversion="$(sed -n 's/^REGLINUX_MSG_VERSION[[:space:]]*=[[:space:]]*\([0-9a-fA-F]\{7\}\).*/\1/p' package/system/reglinux-msg/reglinux-msg.mk)"
+          echo "regmsgversion=$regmsgversion"
+          echo "regmsgversion=$regmsgversion" >> "$GITHUB_OUTPUT"
+
+          skip=
+          if [ "${SKIP_EXISTING}" = true ] && [ "$(curl -o /dev/null -s -Iw '%{http_code}' -L "https://github.com/REG-Linux/regmsg-binaries/releases/download/${regmsgversion}/reglinux-msg-${regmsgversion}-${{ matrix.cpu }}.tar.xz")" -eq 200 ]; then
+            echo "reglinux-msg-${regmsgversion}-${{ matrix.cpu }}.tar.xz already released; skipping"
+            skip=y
+          fi
+          if [ -z "$skip" ]; then
+            # Patch Makefile to use 'reglinux-build:latest' docker image from ghcr.io
+            sed -i '/^DOCKER_REPO/ s|reglinux|ghcr.io/reg-linux|' Makefile
+            sed -i '/ build . -t /d' Makefile
+
+            # Disable CCACHE
+            sed -i '/BR2_CCACHE/d' configs/reglinux-board.common
+
+            # Merge buildroot patches
+            CUSTOM_DIR=${{ github.workspace }}/custom BUILDROOT_DIR=${{ github.workspace }}/buildroot ${{ github.workspace }}/scripts/buildroot/mergeToBR.sh
+
+            # The download cleanup the hosted workflow does (ci-free-space.mk
+            # as local.mk) is deliberately not done here: a self-hosted runner
+            # has the disk, and keeping the downloads makes reruns cheap.
+
+            # Enable the flag and token to build regmsg from source
+            sed -i 's/#BR2_PACKAGE_REGLINUX_MSG_BUILD_FROM_SOURCE=y/BR2_PACKAGE_REGLINUX_MSG_BUILD_FROM_SOURCE=y/' configs/reglinux-board.common
+            echo "${GH_TOKEN}" > ./gh_token
+
+            # No toolchain cache here, unlike the hosted build-regmsg.yaml:
+            # this workflow builds with the default PARALLEL_BUILD=y, and the
+            # cache tarballs on REG-llvm-binaries are built with PARALLEL_BUILD=n.
+
+            # Keep Buildroot's downloads outside the workspace. actions/checkout
+            # runs with clean: true, so a workspace dl/ is wiped before every
+            # leg. Also, every container mounts -v $(DL_DIR):/build/buildroot/dl,
+            # and docker creates a missing bind-mount source as root:root, which
+            # the build - running as -u $(id -u):$(id -g) - cannot write into.
+            # Export it rather than passing DL_DIR=... to make: DL_DIR is not in
+            # the Makefile's WRAPPER_VARS, so a command-line assignment would be
+            # forwarded into the container through MAKEFLAGS and point
+            # Buildroot at a host path that does not exist there.
+            export DL_DIR="${HOME}/reglinux-dl"
+            mkdir -p "$DL_DIR"
+
+            make ${{ matrix.target }}-clean
+            DEBUG_BUILD=n CCACHE_DISABLE=1 make PKG=reglinux-msg ${{ matrix.target }}-pkg
+
+            cd "${{ github.workspace }}/output/${{ matrix.target }}" || exit 1
+            # With PARALLEL_BUILD=y the package installs into
+            # per-package/reglinux-msg/target (the post-install self-hash stamps
+            # regmsgd there too); output/target stays empty, since a
+            # `<target>-pkg` goal never runs target-finalize. Harvest from there
+            # and let tar strip the prefix, so the tarball keeps the target/
+            # layout reglinux-msg.mk unpacks either way.
+            if [ -d per-package/reglinux-msg/target ]; then
+              targetroot=per-package/reglinux-msg/target
+            else
+              targetroot=target
+            fi
+            # LC_ALL=C: under this workflow's UTF-8 locale sort ignores
+            # punctuation, so -u could drop one of two names that differ only by it.
+            cat build/reglinux-msg*/.files-list.txt | cut -d ',' -f 2 | sed -e "s+^./+${targetroot}/+g" | LC_ALL=C sort -u > reglinux-msg-filelist.txt
+            [ -s reglinux-msg-filelist.txt ] || { echo "No reglinux-msg manifest - was regmsg really built from source?"; exit 1; }
+            echo "$(wc -l < reglinux-msg-filelist.txt) files in reglinux-msg-filelist.txt"
+            # flags=rh rewrites member names and hard-link targets only; symlink
+            # targets must stay as the package wrote them.
+            XZ_OPT=-9 tar -cJf "${{ github.workspace }}/reglinux-msg-${regmsgversion}-${{ matrix.cpu }}.tar.xz" \
+              --transform='flags=rh;s|^per-package/reglinux-msg/||' --verbatim-files-from -T reglinux-msg-filelist.txt || :
+            echo "dorelease=true" >> "$GITHUB_OUTPUT"
+
+            # Publish this leg's tarball right away rather than waiting for the
+            # whole matrix: builds download their own cpu's file by tag, so it
+            # is usable as soon as it is up. The first leg to finish creates the
+            # release; a leg that loses that race just uploads. create_release
+            # below still re-uploads every artifact and marks the release
+            # latest, so a failed upload here is not fatal.
+            cd "${{ github.workspace }}"
+            repo=REG-Linux/regmsg-binaries
+            gh release view "${regmsgversion}" -R "${repo}" >/dev/null 2>&1 \
+              || gh release create "${regmsgversion}" -R "${repo}" --title "regmsg binaries (${regmsgversion})" --generate-notes --latest=false >/dev/null 2>&1 \
+              || gh release view "${regmsgversion}" -R "${repo}" >/dev/null 2>&1 \
+              || echo "::warning::could not create release ${regmsgversion}; create_release will"
+            for try in 1 2 3; do
+              gh release upload "${regmsgversion}" "reglinux-msg-${regmsgversion}-${{ matrix.cpu }}.tar.xz" -R "${repo}" --clobber && break
+              [ "${try}" = 3 ] && echo "::warning::upload failed; create_release will retry" || sleep 10
+            done
+          fi
+
+      - name: Upload artifacts
+        if: ${{ steps.compile_regmsg_step.outputs.dorelease == 'true' && ! cancelled() }}
+        id: upload_artifacts
+        uses: actions/upload-artifact@v7.0.0
+        with:
+          name: reglinux-msg-${{ steps.compile_regmsg_step.outputs.regmsgversion }}-${{ matrix.cpu }}
+          compression-level: 0
+          path: reglinux-msg-${{ steps.compile_regmsg_step.outputs.regmsgversion }}-*
+
+      - name: Upload full-build.log on failure
+        if: failure()
+        uses: actions/upload-artifact@v7.0.0
+        with:
+          name: full-build-log-${{ matrix.target }}
+          path: ${{ github.workspace }}/output/${{ matrix.target }}/build/full-build.log
+
+  create_release:
+    name: Create release
+    needs: compile-regmsg
+    if: ${{ !cancelled() }}
+    runs-on: self-hosted
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v8.0.1
+        with:
+          pattern: reglinux-msg-*
+          path: artifacts
+          merge-multiple: true
+
+      # The artifacts are the aggregate of what was built: a matrix job cannot
+      # aggregate a "did anything build?" output (the last leg wins).
+      - name: Decide whether there is anything to release
+        id: rel
+        run: |
+          shopt -s nullglob
+          files=(artifacts/reglinux-msg-*.tar.xz)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No new tarballs were built; nothing to release."
+            exit 0
+          fi
+          regmsgversion="$(basename "${files[0]}" | sed -nE 's/^reglinux-msg-([0-9a-f]{7})-.*\.tar\.xz$/\1/p')"
+          if [ -z "$regmsgversion" ]; then
+            echo "Could not parse regmsg version from ${files[0]}"
+            exit 1
+          fi
+          echo "Releasing ${#files[@]} tarball(s) as ${regmsgversion}"
+          echo "regmsgversion=${regmsgversion}" >> "$GITHUB_OUTPUT"
+
+      - name: Create release
+        if: ${{ steps.rel.outputs.regmsgversion != '' }}
+        env:
+          VER: ${{ steps.rel.outputs.regmsgversion }}
+          GH_TOKEN: ${{ secrets.REG_TOKEN }}
+        run: |
+          set -euo pipefail
+          repo=REG-Linux/regmsg-binaries
+          gh release view "${VER}" -R "${repo}" >/dev/null 2>&1 \
+            || gh release create "${VER}" -R "${repo}" --title "regmsg binaries (${VER})" --generate-notes
+          gh release upload "${VER}" artifacts/reglinux-msg-"${VER}"-* -R "${repo}" --clobber
+          gh release edit "${VER}" -R "${repo}" --latest --prerelease=false
+
+      # Keep the release list bounded: the three newest regmsg releases (the
+      # 7-hex tags this workflow creates; toolchain caches and hand-made
+      # releases cannot match). publishedAt, not createdAt: createdAt is the
+      # tagged commit's date.
+      - name: Prune old releases
+        if: ${{ steps.rel.outputs.regmsgversion != '' }}
+        env:
+          JUST_RELEASED: ${{ steps.rel.outputs.regmsgversion }}
+          GH_TOKEN: ${{ secrets.REG_TOKEN }}
+        run: |
+          set -euo pipefail
+          if ! command -v gh >/dev/null 2>&1; then
+            echo "::warning::gh is not installed on this runner; skipping release pruning"
+            exit 0
+          fi
+          KEEP=3
+          prune() {
+            pattern="$1"
+            echo "== keeping the ${KEEP} newest releases matching ${pattern}"
+            doomed="$(gh release list --limit 200 -R REG-Linux/regmsg-binaries --json tagName,publishedAt \
+                        --jq 'sort_by(.publishedAt) | reverse | .[].tagName' \
+                      | grep -E "${pattern}" | tail -n +$((KEEP + 1)) || true)"
+            if [ -z "${doomed}" ]; then
+              echo "   nothing to remove"
+              return 0
+            fi
+            printf '%s\n' "${doomed}" | while read -r tag; do
+              [ -n "${tag}" ] || continue
+              case " ${JUST_RELEASED} " in *" ${tag} "*) echo "   keeping ${tag} (released by this run)"; continue ;; esac
+              echo "   deleting ${tag}"
+              gh release delete "${tag}" -R REG-Linux/regmsg-binaries --cleanup-tag --yes \
+                || echo "::warning::could not delete release ${tag}"
+            done
+          }
+          prune '^[0-9a-f]{7}$'
