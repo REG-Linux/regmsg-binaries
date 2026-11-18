@@ -39,11 +39,16 @@ jobs:
     steps:
       # Every job calls gh (release create/upload/delete). The self-hosted
       # runners are not all provisioned the same way: one without gh made
-      # 99ef270 ship without 5 CPUs. Use the runner's gh if it has one,
-      # otherwise a pinned, checksum-verified release in the job's temp dir.
+      # 99ef270 ship without 5 CPUs. Use the runner's gh if it is recent
+      # enough, otherwise a pinned, checksum-verified release in the job's
+      # temp dir.
       - name: Ensure gh
         run: |
-          if command -v gh >/dev/null 2>&1; then gh --version | head -n1; exit 0; fi
+          # gh < 2.25 (Debian 12 ships 2.23) has no `release list --json`,
+          # which "Prune old releases" needs: replace it too.
+          if command -v gh >/dev/null 2>&1 && gh release list --help 2>&1 | grep -q -- '--json'; then
+            gh --version | head -n1; exit 0
+          fi
           v=2.103.3
           t="gh_${v}_linux_amd64.tar.gz"
           d="${RUNNER_TEMP}/gh-${v}"
@@ -185,11 +190,16 @@ jobs:
     steps:
       # Every job calls gh (release create/upload/delete). The self-hosted
       # runners are not all provisioned the same way: one without gh made
-      # 99ef270 ship without 5 CPUs. Use the runner's gh if it has one,
-      # otherwise a pinned, checksum-verified release in the job's temp dir.
+      # 99ef270 ship without 5 CPUs. Use the runner's gh if it is recent
+      # enough, otherwise a pinned, checksum-verified release in the job's
+      # temp dir.
       - name: Ensure gh
         run: |
-          if command -v gh >/dev/null 2>&1; then gh --version | head -n1; exit 0; fi
+          # gh < 2.25 (Debian 12 ships 2.23) has no `release list --json`,
+          # which "Prune old releases" needs: replace it too.
+          if command -v gh >/dev/null 2>&1 && gh release list --help 2>&1 | grep -q -- '--json'; then
+            gh --version | head -n1; exit 0
+          fi
           v=2.103.3
           t="gh_${v}_linux_amd64.tar.gz"
           d="${RUNNER_TEMP}/gh-${v}"
@@ -338,11 +348,16 @@ jobs:
     steps:
       # Every job calls gh (release create/upload/delete). The self-hosted
       # runners are not all provisioned the same way: one without gh made
-      # 99ef270 ship without 5 CPUs. Use the runner's gh if it has one,
-      # otherwise a pinned, checksum-verified release in the job's temp dir.
+      # 99ef270 ship without 5 CPUs. Use the runner's gh if it is recent
+      # enough, otherwise a pinned, checksum-verified release in the job's
+      # temp dir.
       - name: Ensure gh
         run: |
-          if command -v gh >/dev/null 2>&1; then gh --version | head -n1; exit 0; fi
+          # gh < 2.25 (Debian 12 ships 2.23) has no `release list --json`,
+          # which "Prune old releases" needs: replace it too.
+          if command -v gh >/dev/null 2>&1 && gh release list --help 2>&1 | grep -q -- '--json'; then
+            gh --version | head -n1; exit 0
+          fi
           v=2.103.3
           t="gh_${v}_linux_amd64.tar.gz"
           d="${RUNNER_TEMP}/gh-${v}"
