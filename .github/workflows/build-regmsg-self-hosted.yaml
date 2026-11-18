@@ -87,6 +87,11 @@ jobs:
           sed -i 's| --rm | --rm --network host |' Makefile
 
           # Merge buildroot patches
+          # The self-hosted workspace keeps the buildroot submodule of the last
+          # run, already merged (and with files custom/ adds): start from the
+          # pinned, pristine tree, or mergeToBR aborts on any changed custom file.
+          git -C ${{ github.workspace }}/buildroot reset -q --hard
+          git -C ${{ github.workspace }}/buildroot clean -qfdx
           CUSTOM_DIR=${{ github.workspace }}/custom BUILDROOT_DIR=${{ github.workspace }}/buildroot ${{ github.workspace }}/scripts/buildroot/mergeToBR.sh
 
           # Build regmsg from source, or the source we want is never referenced
@@ -254,6 +259,11 @@ jobs:
             sed -i '/BR2_CCACHE/d' configs/reglinux-board.common
 
             # Merge buildroot patches
+            # The self-hosted workspace keeps the buildroot submodule of the last
+            # run, already merged (and with files custom/ adds): start from the
+            # pinned, pristine tree, or mergeToBR aborts on any changed custom file.
+            git -C ${{ github.workspace }}/buildroot reset -q --hard
+            git -C ${{ github.workspace }}/buildroot clean -qfdx
             CUSTOM_DIR=${{ github.workspace }}/custom BUILDROOT_DIR=${{ github.workspace }}/buildroot ${{ github.workspace }}/scripts/buildroot/mergeToBR.sh
 
             # The download cleanup the hosted workflow does (ci-free-space.mk
