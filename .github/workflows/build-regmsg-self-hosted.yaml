@@ -37,6 +37,26 @@ jobs:
     name: Prepare shared downloads
     runs-on: self-hosted
     steps:
+      # Every job calls gh (release create/upload/delete). The self-hosted
+      # runners are not all provisioned the same way: one without gh made
+      # 99ef270 ship without 5 CPUs. Use the runner's gh if it has one,
+      # otherwise a pinned, checksum-verified release in the job's temp dir.
+      - name: Ensure gh
+        run: |
+          if command -v gh >/dev/null 2>&1; then gh --version | head -n1; exit 0; fi
+          v=2.103.3
+          t="gh_${v}_linux_amd64.tar.gz"
+          d="${RUNNER_TEMP}/gh-${v}"
+          if [ ! -x "${d}/bin/gh" ]; then
+            base="https://github.com/cli/cli/releases/download/v${v}"
+            curl -fsSL -o "${RUNNER_TEMP}/${t}" "${base}/${t}"
+            curl -fsSL "${base}/gh_${v}_checksums.txt" | grep " ${t}\$" | (cd "${RUNNER_TEMP}" && sha256sum -c -)
+            mkdir -p "${d}"
+            tar -xzf "${RUNNER_TEMP}/${t}" -C "${d}" --strip-components=1
+          fi
+          echo "${d}/bin" >> "${GITHUB_PATH}"
+          "${d}/bin/gh" --version | head -n1
+
       - name: Login to GHCR
         uses: docker/login-action@v4.0.0
         with:
@@ -163,6 +183,26 @@ jobs:
       fail-fast: false
 
     steps:
+      # Every job calls gh (release create/upload/delete). The self-hosted
+      # runners are not all provisioned the same way: one without gh made
+      # 99ef270 ship without 5 CPUs. Use the runner's gh if it has one,
+      # otherwise a pinned, checksum-verified release in the job's temp dir.
+      - name: Ensure gh
+        run: |
+          if command -v gh >/dev/null 2>&1; then gh --version | head -n1; exit 0; fi
+          v=2.103.3
+          t="gh_${v}_linux_amd64.tar.gz"
+          d="${RUNNER_TEMP}/gh-${v}"
+          if [ ! -x "${d}/bin/gh" ]; then
+            base="https://github.com/cli/cli/releases/download/v${v}"
+            curl -fsSL -o "${RUNNER_TEMP}/${t}" "${base}/${t}"
+            curl -fsSL "${base}/gh_${v}_checksums.txt" | grep " ${t}\$" | (cd "${RUNNER_TEMP}" && sha256sum -c -)
+            mkdir -p "${d}"
+            tar -xzf "${RUNNER_TEMP}/${t}" -C "${d}" --strip-components=1
+          fi
+          echo "${d}/bin" >> "${GITHUB_PATH}"
+          "${d}/bin/gh" --version | head -n1
+
       - name: Login to GHCR
         uses: docker/login-action@v4.0.0
         with:
@@ -296,6 +336,26 @@ jobs:
     if: ${{ !cancelled() }}
     runs-on: self-hosted
     steps:
+      # Every job calls gh (release create/upload/delete). The self-hosted
+      # runners are not all provisioned the same way: one without gh made
+      # 99ef270 ship without 5 CPUs. Use the runner's gh if it has one,
+      # otherwise a pinned, checksum-verified release in the job's temp dir.
+      - name: Ensure gh
+        run: |
+          if command -v gh >/dev/null 2>&1; then gh --version | head -n1; exit 0; fi
+          v=2.103.3
+          t="gh_${v}_linux_amd64.tar.gz"
+          d="${RUNNER_TEMP}/gh-${v}"
+          if [ ! -x "${d}/bin/gh" ]; then
+            base="https://github.com/cli/cli/releases/download/v${v}"
+            curl -fsSL -o "${RUNNER_TEMP}/${t}" "${base}/${t}"
+            curl -fsSL "${base}/gh_${v}_checksums.txt" | grep " ${t}\$" | (cd "${RUNNER_TEMP}" && sha256sum -c -)
+            mkdir -p "${d}"
+            tar -xzf "${RUNNER_TEMP}/${t}" -C "${d}" --strip-components=1
+          fi
+          echo "${d}/bin" >> "${GITHUB_PATH}"
+          "${d}/bin/gh" --version | head -n1
+
       - name: Download artifacts
         uses: actions/download-artifact@v8.0.1
         with:
